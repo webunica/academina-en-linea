@@ -3,50 +3,81 @@ import type { NextRequest } from 'next/server';
 
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     */
     '/((?!api|_next/static|_next/image|favicon.ico).*)',
   ],
 };
 
-// Dominios principales del SaaS (Platform)
-const ROOT_URLS = ['academina.cl', 'localhost:3000', 'www.academina.cl'];
+// Dominios principales de la Plataforma SaaS (NO son tenants)
+const ROOT_HOSTNAMES = [
+  'academina.cl',
+  'www.academina.cl',
+  'localhost',
+  'localhost:3000',
+];
+
+// Sufijos de Vercel/Railway que también son dominios raíz de plataforma
+const ROOT_HOSTNAME_SUFFIXES = [
+  '.vercel.app',
+  '.up.railway.app',
+];
+
+function isRootPlatformDomain(hostname: string): boolean {
+  // Verificar dominios exactos 
+  if (ROOT_HOSTNAMES.includes(hostname)) return true;
+
+  // Verificar dominios de preview de Vercel / Railway
+  for (const suffix of ROOT_HOSTNAME_SUFFIXES) {
+    if (hostname.endsWith(suffix)) return true;
+  }
+
+  return false;
+}
 
 export function middleware(req: NextRequest) {
-  const url = req.nextUrl;
+  const url = req.nextUrl.clone();
   const hostname = req.headers.get('host') || '';
 
-  // Permitir la exclusión de recursos estáticos
-  if (url.pathname.includes('.') || url.pathname.startsWith('/api')) {
+  // Pasar recursos estáticos sin procesamiento
+  if (
+    url.pathname.startsWith('/_next') ||
+    url.pathname.startsWith('/api') ||
+    url.pathname.includes('.')
+  ) {
     return NextResponse.next();
   }
 
-  // Comprobar si estamos en el dominio raíz SaaS o en un Tenant (subdominio o dominio propio)
-  const isRootDomain = ROOT_URLS.includes(hostname);
+  const rootDomain = isRootPlatformDomain(hostname);
 
-  if (!isRootDomain) {
-    // Es un tenant. Extraemos el subdominio o usamos el dominio personalizado
-    // Ej: "mia-academia.academina.cl" -> "mia-academia"
-    const tenantIdentifier = hostname.replace('.academina.cl', '').replace('.localhost:3000', '');
-
-    // Reescribimos la URL para que Next.js renderice la carpeta /[tenant]/...
-    // Inyectamos internamente la ruta sin cambiar la URL visible en el navegador
-    return NextResponse.rewrite(new URL(`/${tenantIdentifier}${url.pathname}`, req.url));
+  if (rootDomain) {
+    // Dominio raíz SaaS → mostrar landing y páginas de plataforma
+    if (url.pathname === '/') {
+      url.pathname = '/saas';
+      return NextResponse.rewrite(url);
+    }
+    if (url.pathname === '/register') {
+      url.pathname = '/saas/register';
+      return NextResponse.rewrite(url);
+    }
+    // Rutas /saas/* las dejamos pasar tal cual
+    return NextResponse.next();
   }
 
-  // Si estamos en el SaaS, puedes enrutar a las rutas generales de empresa
-  if (url.pathname === '/') {
-    return NextResponse.rewrite(new URL(`/saas`, req.url)); 
-  }
-  
-  if (url.pathname.startsWith('/register')) {
-    return NextResponse.rewrite(new URL(`/saas/register`, req.url));
+  // --- Lógica de TENANTS (subdominios o dominios propios) ---
+  // Extraer slug del tenant del hostname
+  // Ej: "miacademia.academina.cl" → "miacademia"
+  // Ej: "miacademia.localhost" → "miacademia" (para dev local)
+  let tenantSlug = hostname
+    .replace('.academina.cl', '')
+    .replace('.www.academina.cl', '')
+    .replace('.localhost:3000', '')
+    .replace('.localhost', '');
+
+  // Si la ruta ya empieza con el slug del tenant (dev local con /[tenant]/*), pasar directo
+  if (url.pathname.startsWith(`/${tenantSlug}`)) {
+    return NextResponse.next();
   }
 
-  return NextResponse.next();
+  // Reescribir invisiblemente agregando el tenant al inicio de la ruta
+  url.pathname = `/${tenantSlug}${url.pathname}`;
+  return NextResponse.rewrite(url);
 }
