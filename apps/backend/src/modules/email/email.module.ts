@@ -1,14 +1,15 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
+import { EmailService } from './email.service';
+import { EmailProcessor } from './email.processor';
 
 @Module({
   imports: [
-    // Cola asíncrona para envíos SMTP desvinculados del tiempo de respuesta HTTP de la API
     BullModule.registerQueue({
       name: 'email-sending',
     }),
   ],
-  providers: [], // Aquí irán EmailService, EmailConsumer (Processor)
-  exports: [BullModule],
+  providers: [EmailService, EmailProcessor],
+  exports: [EmailService],
 })
 export class EmailModule {}
