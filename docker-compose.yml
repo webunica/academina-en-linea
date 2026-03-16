@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  # Base de Datos Principal (PostgreSQL)
+  postgres:
+    image: postgres:15-alpine
+    container_name: academina_postgres
+    restart: unless-stopped
+    ports:
+      - '5432:5432'
+    environment:
+      POSTGRES_USER: ${DB_USER:-academina_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-academina_pass_123}
+      POSTGRES_DB: ${DB_NAME:-academina_lms}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-academina_user}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Base de Datos en Memoria y Colas (Redis)
+  redis:
+    image: redis:7-alpine
+    container_name: academina_redis
+    restart: unless-stopped
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # Aplicación Backend (NestJS + Prisma)
+  backend:
+    build: 
+      context: ./apps/backend
+      dockerfile: Dockerfile
+    container_name: academina_backend
+    restart: on-failure
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - '${BACKEND_PORT:-3001}:3001'
+    # Cargamos el entorno global
+    env_file:
+      - .env
+    environment:
+      # Prisma URL construída a partir de las vars de postgres internamente para Docker
+      DATABASE_URL: postgresql://${DB_USER:-academina_user}:${DB_PASSWORD:-academina_pass_123}@postgres:5432/${DB_NAME:-academina_lms}?schema=public
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+
+  # Aplicación Frontend (Next.js)
+  frontend:
+    build:
+      context: ./apps/frontend
+      dockerfile: Dockerfile
+    container_name: academina_frontend
+    restart: on-failure
+    depends_on:
+      - backend
+    ports:
+      - '${FRONTEND_PORT:-3000}:3000'
+    env_file:
+      - .env
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:${BACKEND_PORT:-3001}/api/v1
+
+volumes:
+  postgres_data:
+  redis_data:

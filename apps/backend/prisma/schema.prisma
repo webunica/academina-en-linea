@@ -1,0 +1,784 @@
+// =========================================================================
+// ACADEMINA - Multi-Tenant SaaS LMS Prisma Schema
+// =========================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =========================================================================
+// ENUMS
+// =========================================================================
+
+enum RoleType {
+  SUPERADMIN
+  TENANT_ADMIN
+  INSTRUCTOR
+  STUDENT
+  CUSTOM
+}
+
+enum PlanStatus {
+  ACTIVE
+  INACTIVE
+  LEGACY
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  UNPAID
+}
+
+enum CourseStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+enum CourseLevel {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+  ALL_LEVELS
+}
+
+enum LessonType {
+  VIDEO
+  TEXT
+  PDF
+  EMBED
+  QUIZ
+  ASSIGNMENT
+}
+
+enum AssignmentSubmissionStatus {
+  PENDING_REVIEW
+  GRADED
+  REJECTED
+}
+
+enum QuestionType {
+  MULTIPLE_CHOICE
+  TRUE_FALSE
+  SHORT_ANSWER
+  ESSAY
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  REFUNDED
+  EXPIRED
+}
+
+enum GatewayType {
+  MERCADOPAGO
+  WEBPAY
+  PAYPAL
+  MANUAL
+}
+
+enum MediaProvider {
+  BUNNY_NET
+  YOUTUBE
+  VIMEO
+  CUSTOM
+}
+
+// =========================================================================
+// CORE & MULTI-TENANT (No tenantId needed on Tenant itself)
+// =========================================================================
+
+model Tenant {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name     String
+  slug     String  @unique // academina.cl/tenant-slug base reference
+  isActive Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  settings        TenantSetting?
+  domains         TenantDomain[]
+  brand           TenantBrand?
+  users           UserRole[]
+  paymentSettings TenantPaymentSetting[]
+  courses         Course[]
+  enrollments     Enrollment[]
+  transactions    PaymentTransaction[]
+  subscriptions   Subscription[] // SaaS subscriptions for this tenant
+  instructors     Instructor[]
+  students        Student[]
+  bundles         Bundle[]
+  certificateTpls CertificateTemplate[]
+  invoices        Invoice[]
+  coupons         Coupon[]
+  announcements   Announcement[]
+  emailTemplates  EmailTemplate[]
+  mediaAssets     MediaAsset[]
+  roles           Role[]
+  Event           Event[]
+}
+
+model TenantSetting {
+  id                 String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId           String  @unique @db.Uuid
+  defaultCurrency    String  @default("CLP")
+  supportEmail       String?
+  allowRegistrations Boolean @default(true)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model TenantDomain {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String  @db.Uuid
+  domain     String  @unique // e.g., "academy.miempresa.cl"
+  isPrimary  Boolean @default(false)
+  isVerified Boolean @default(false)
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model TenantBrand {
+  id             String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId       String  @unique @db.Uuid
+  logoUrl        String?
+  faviconUrl     String?
+  primaryColor   String  @default("#000000")
+  secondaryColor String  @default("#FFFFFF")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+// =========================================================================
+// SAAS BILLING (SuperAdmin level)
+// =========================================================================
+
+model Plan {
+  id          String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String
+  description String?
+  price       Int // SuperAdmin SaaS price
+  currency    String     @default("CLP")
+  status      PlanStatus @default(ACTIVE)
+  features    Json? // JSON of limits like maxCourses, maxStudents
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id               String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId         String             @db.Uuid
+  planId           String             @db.Uuid
+  status           SubscriptionStatus @default(ACTIVE)
+  currentPeriodEnd DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  plan   Plan   @relation(fields: [planId], references: [id])
+
+  @@index([tenantId])
+}
+
+// =========================================================================
+// USERS & RBAC
+// =========================================================================
+
+model User {
+  id           String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String  @unique
+  passwordHash String
+  isSuperAdmin Boolean @default(false) // Only for academina owners
+  isActive     Boolean @default(true)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  profile        UserProfile?
+  roles          UserRole[]
+  activeSessions ActiveSession[]
+  auditLogs      AuditLog[]
+
+  @@index([email])
+}
+
+model UserProfile {
+  id        String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String  @unique @db.Uuid
+  firstName String
+  lastName  String
+  avatarUrl String?
+  phone     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model Role {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String?  @db.Uuid // null if superadmin global role
+  name        String
+  type        RoleType
+  permissions Json // Storing permissions array/object
+
+  tenant    Tenant?    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userRoles UserRole[]
+
+  @@index([tenantId])
+}
+
+model UserRole {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId   String @db.Uuid
+  tenantId String @db.Uuid
+  roleId   String @db.Uuid
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role   Role   @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, tenantId, roleId])
+  @@index([tenantId])
+}
+
+model Instructor {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String  @db.Uuid
+  userId   String  @db.Uuid // Must map back to a User
+  bio      String?
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  courses Course[]
+
+  @@unique([tenantId, userId])
+}
+
+model Student {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  userId   String @db.Uuid
+
+  tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  enrollments           Enrollment[]
+  progress              CourseProgress[]
+  quizAttempts          QuizAttempt[]
+  assignmentSubmissions AssignmentSubmission[]
+
+  @@unique([tenantId, userId])
+}
+
+// =========================================================================
+// ACADEMIC STRUCTURE
+// =========================================================================
+
+model Course {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String       @db.Uuid
+  instructorId String?      @db.Uuid
+  title        String
+  slug         String
+  description  String?
+  price        Int          @default(0) // In smallest currency unit (cents/pesos)
+  currency     String       @default("CLP")
+  level        CourseLevel  @default(ALL_LEVELS)
+  status       CourseStatus @default(DRAFT)
+  thumbnailUrl String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  instructor  Instructor?      @relation(fields: [instructorId], references: [id], onDelete: SetNull)
+  sections    CourseSection[]
+  enrollments Enrollment[]
+  progress    CourseProgress[]
+  bundleItems BundleItem[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId])
+}
+
+model CourseSection {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  courseId String @db.Uuid
+  title    String
+  order    Int    @default(0)
+
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
+
+  @@index([tenantId])
+  @@index([courseId])
+}
+
+model Lesson {
+  id            String     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String     @db.Uuid
+  sectionId     String     @db.Uuid
+  title         String
+  type          LessonType
+  content       String? // Rich text or html
+  videoAssetId  String?    @db.Uuid // Relation to MediaAsset for Bunny.net
+  order         Int        @default(0)
+  durationSec   Int        @default(0)
+  isFreePreview Boolean    @default(false)
+
+  section    CourseSection    @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+  videoAsset MediaAsset?      @relation(fields: [videoAssetId], references: [id], onDelete: SetNull)
+  resources  LessonResource[]
+  progress   LessonProgress[]
+  quiz       Quiz?
+  assignment Assignment?
+
+  @@index([tenantId])
+  @@index([sectionId])
+}
+
+model LessonResource {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  lessonId String @db.Uuid
+  name     String
+  fileUrl  String
+
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+// =========================================================================
+// ASSIGNMENTS & QUIZZES
+// =========================================================================
+
+model Assignment {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String @db.Uuid
+  lessonId     String @unique @db.Uuid
+  instructions String
+  maxScore     Int    @default(100)
+
+  lesson      Lesson                 @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  submissions AssignmentSubmission[]
+
+  @@index([tenantId])
+}
+
+model AssignmentSubmission {
+  id           String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String                     @db.Uuid
+  assignmentId String                     @db.Uuid
+  studentId    String                     @db.Uuid
+  content      String?
+  fileUrl      String?
+  status       AssignmentSubmissionStatus @default(PENDING_REVIEW)
+  score        Int?
+  feedback     String?
+
+  submittedAt DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  student    Student    @relation(fields: [studentId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([studentId])
+}
+
+model Quiz {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId     String @db.Uuid
+  lessonId     String @unique @db.Uuid
+  title        String
+  minPassScore Int    @default(50)
+  maxAttempts  Int    @default(3)
+
+  lesson    Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  questions QuizQuestion[]
+  attempts  QuizAttempt[]
+
+  @@index([tenantId])
+}
+
+model QuizQuestion {
+  id            String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String       @db.Uuid
+  quizId        String       @db.Uuid
+  type          QuestionType
+  questionText  String
+  options       Json? // Array of options for multiple choice
+  correctAnswer String? // For auto-grading
+  points        Int          @default(1)
+
+  quiz    Quiz                @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  answers QuizAttemptAnswer[]
+
+  @@index([tenantId])
+}
+
+model QuizAttempt {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @db.Uuid
+  quizId      String    @db.Uuid
+  studentId   String    @db.Uuid
+  score       Int?
+  isPassed    Boolean   @default(false)
+  startedAt   DateTime  @default(now())
+  completedAt DateTime?
+
+  quiz    Quiz                @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  student Student             @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  answers QuizAttemptAnswer[]
+
+  @@index([tenantId])
+  @@index([studentId])
+}
+
+model QuizAttemptAnswer {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  attemptId   String   @db.Uuid
+  questionId  String   @db.Uuid
+  answerGiven String
+  isCorrect   Boolean? // Null if manual review needed (essay)
+
+  attempt  QuizAttempt  @relation(fields: [attemptId], references: [id], onDelete: Cascade)
+  question QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+}
+
+// =========================================================================
+// ENROLLMENTS & PROGRESS
+// =========================================================================
+
+model Enrollment {
+  id        String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String           @db.Uuid
+  studentId String           @db.Uuid
+  courseId  String           @db.Uuid
+  status    EnrollmentStatus @default(ACTIVE)
+
+  enrolledAt DateTime  @default(now())
+  expiresAt  DateTime?
+
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course  Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, studentId, courseId])
+  @@index([tenantId])
+}
+
+model CourseProgress {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId        String    @db.Uuid
+  studentId       String    @db.Uuid
+  courseId        String    @db.Uuid
+  percentComplete Float     @default(0.0)
+  isCompleted     Boolean   @default(false)
+  completedAt     DateTime?
+
+  student Student @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  course  Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, studentId, courseId])
+}
+
+model LessonProgress {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @db.Uuid
+  studentId   String    @db.Uuid
+  lessonId    String    @db.Uuid
+  isCompleted Boolean   @default(false)
+  completedAt DateTime?
+
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, studentId, lessonId])
+}
+
+// =========================================================================
+// BUNDLES & CERTIFICATES
+// =========================================================================
+
+model Bundle {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  title    String
+  slug     String
+  price    Int
+  currency String @default("CLP")
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  items  BundleItem[]
+
+  @@unique([tenantId, slug])
+}
+
+model BundleItem {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  bundleId String @db.Uuid
+  courseId String @db.Uuid
+
+  bundle Bundle @relation(fields: [bundleId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([bundleId, courseId])
+}
+
+model CertificateTemplate {
+  id         String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String @db.Uuid
+  name       String
+  htmlLayout String // Storing HTML/CSS structure
+
+  tenant Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  issued CertificateIssue[]
+}
+
+model CertificateIssue {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String  @db.Uuid
+  templateId String  @db.Uuid
+  studentId  String  @db.Uuid
+  courseId   String  @db.Uuid
+  code       String  @unique // For public verification page
+  pdfUrl     String?
+
+  issuedAt DateTime @default(now())
+
+  template CertificateTemplate @relation(fields: [templateId], references: [id])
+}
+
+// =========================================================================
+// PAYMENTS & INVOICES
+// =========================================================================
+
+model TenantPaymentSetting {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String      @db.Uuid
+  gateway     GatewayType
+  isActive    Boolean     @default(true)
+  credentials Json // Encrypted inside application logic before saving
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, gateway])
+}
+
+model PaymentTransaction {
+  id                   String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId             String        @db.Uuid
+  gateway              GatewayType
+  gatewayTransactionId String? // ID provider gives us
+  userId               String        @db.Uuid // Buyer
+  amount               Int
+  currency             String        @default("CLP")
+  status               PaymentStatus @default(PENDING)
+  payloadLog           Json? // Essential for debugging
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant   Tenant    @relation(fields: [tenantId], references: [id])
+  invoices Invoice[]
+
+  @@index([tenantId])
+  @@index([gatewayTransactionId])
+}
+
+model PaymentWebhookLog {
+  id          String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  gateway     GatewayType
+  payload     Json
+  isProcessed Boolean     @default(false)
+  error       String?
+
+  createdAt DateTime @default(now())
+}
+
+model Invoice {
+  id            String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId      String  @db.Uuid
+  transactionId String  @unique @db.Uuid
+  invoiceNumber String
+  pdfUrl        String?
+
+  tenant      Tenant             @relation(fields: [tenantId], references: [id])
+  transaction PaymentTransaction @relation(fields: [transactionId], references: [id])
+
+  @@index([tenantId])
+}
+
+model Coupon {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String    @db.Uuid
+  code        String
+  discountPct Int? // Percentage
+  discountAmt Int? // Fixed Amount
+  maxUses     Int?
+  usesCount   Int       @default(0)
+  expiresAt   DateTime?
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, code])
+}
+
+// =========================================================================
+// NOTIFICATIONS, EMAILS & CALENDAR
+// =========================================================================
+
+model Notification {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid // if tenant-scoped
+  userId    String   @db.Uuid
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+model Announcement {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId  String   @db.Uuid
+  courseId  String?  @db.Uuid
+  title     String
+  content   String
+  createdAt DateTime @default(now())
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+}
+
+model EmailTemplate {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String? @db.Uuid // null = platform default
+  name     String
+  subject  String
+  htmlBody String
+
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model EmailLog {
+  id       String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String? @db.Uuid
+  to       String
+  subject  String
+  status   String // SENT, FAILED, PENDING
+  error    String?
+
+  createdAt DateTime @default(now())
+}
+
+model Event {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId    String   @db.Uuid
+  title       String
+  description String?
+  startTime   DateTime
+  endTime     DateTime
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model CalendarItem {
+  id       String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId String @db.Uuid
+  userId   String @db.Uuid
+  eventId  String @db.Uuid // Reference to Event or Assignment due date etc.
+  itemType String // "EVENT", "ASSIGNMENT_DUE", "LIVE_SESSION"
+}
+
+// =========================================================================
+// MEDIA (BUNNY.NET & OTHERS)
+// =========================================================================
+
+model MediaAsset {
+  id         String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String        @db.Uuid
+  provider   MediaProvider @default(BUNNY_NET)
+  providerId String // e.g. Bunny.net video ID
+  filename   String
+  duration   Int? // in seconds
+  status     String // PROCESSING, READY, FAILED
+
+  createdAt DateTime @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  lessons Lesson[] // A video can be used in lessons
+
+  @@index([tenantId])
+}
+
+model VideoAsset {
+  id           String @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  mediaAssetId String @db.Uuid
+}
+
+// =========================================================================
+// SECURITY & AUDIT
+// =========================================================================
+
+model ActiveSession {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @db.Uuid
+  tokenHash String   @unique
+  ipAddress String?
+  userAgent String?
+  expiresAt DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model AuditLog {
+  id         String  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  tenantId   String? @db.Uuid
+  userId     String  @db.Uuid
+  action     String // e.g., "COURSE_DELETED", "PAYMENT_REFUNDED"
+  entityId   String?
+  entityType String?
+  oldValues  Json?
+  newValues  Json?
+  ipAddress  String?
+
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId])
+  @@index([userId])
+}
