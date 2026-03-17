@@ -225,6 +225,8 @@ model User {
 
   profile        UserProfile?
   roles          UserRole[]
+  instructors    Instructor[]
+  students       Student[]
   activeSessions ActiveSession[]
   auditLogs      AuditLog[]
 
@@ -276,6 +278,7 @@ model Instructor {
   bio      String?
 
   tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   courses Course[]
 
   @@unique([tenantId, userId])
@@ -287,6 +290,7 @@ model Student {
   userId   String @db.Uuid
 
   tenant                Tenant                 @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user                  User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
   enrollments           Enrollment[]
   progress              CourseProgress[]
   quizAttempts          QuizAttempt[]

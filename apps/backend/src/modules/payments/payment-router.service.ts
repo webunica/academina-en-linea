@@ -1,5 +1,9 @@
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MercadoPagoService } from './providers/mercadopago.service';
+import { WebpayService } from './providers/webpay.service';
+import { PaypalService } from './providers/paypal.service';
+import { GatewayType } from '@prisma/client';
 
 export interface PaymentGateway {
   createTransaction(amount: number, currency: string, metadata: any): Promise<any>;
@@ -11,8 +15,9 @@ export interface PaymentGateway {
 export class PaymentRouterService {
   constructor(
     private readonly prisma: PrismaService,
-    // En NestJS normalmente inyectaríamos un Strategy o Factory
-    // Para simplificar instanciamos o inyectamos Providers aquí:
+    private readonly mpService: MercadoPagoService,
+    private readonly wpayService: WebpayService,
+    private readonly paypalService: PaypalService,
   ) {}
 
   /**
@@ -54,5 +59,27 @@ export class PaymentRouterService {
     // Envía ID a BullMQ para procesarlo asíncronamente libre de timeouts:
     // queue.add('process-payment', { logId: log.id })
     return { received: true, logId: log.id };
+  }
+
+  /**
+   * Dispara el flujo de pago hacia el Gateway concreto.
+   */
+  async createPayment(gateway: GatewayType, data: { transactionId: string, amount: number, currency: string, description: string, returnUrl: string }) {
+    const provider = this.getProvider(gateway);
+    return provider.createTransaction(data.amount, data.currency, {
+      buyOrder: data.transactionId,
+      sessionId: `SESSION-${data.transactionId}`,
+      returnUrl: data.returnUrl,
+      description: data.description,
+    });
+  }
+
+  private getProvider(gateway: GatewayType): PaymentGateway {
+    switch (gateway) {
+      case GatewayType.MERCADOPAGO: return this.mpService;
+      case GatewayType.WEBPAY: return this.wpayService;
+      case GatewayType.PAYPAL: return this.paypalService;
+      default: throw new InternalServerErrorException('Gateway no soportado o inactivo.');
+    }
   }
 }

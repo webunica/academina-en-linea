@@ -61,6 +61,37 @@ export class CoursesService {
   }
 
   /**
+   * Obtener cursos en los que el usuario está inscrito
+   */
+  async getEnrolledCourses(tenantId: string, userId: string) {
+    // 1. Encontrar el registro de Estudiante para este usuario en este tenant
+    const student = await this.prisma.student.findUnique({
+      where: { tenantId_userId: { tenantId, userId } }
+    });
+
+    if (!student) return [];
+
+    // 2. Buscar enrollments activos
+    const enrollments = await this.prisma.enrollment.findMany({
+      where: {
+        tenantId,
+        studentId: student.id,
+        status: 'ACTIVE'
+      },
+      include: {
+        course: {
+          include: {
+            instructor: { select: { user: { select: { profile: true } } } },
+            _count: { select: { sections: true } }
+          }
+        }
+      }
+    });
+
+    return (enrollments as any[]).map(e => e.course);
+  }
+
+  /**
    * Detalle individual asegurando que no se pueda leer un curso de OTRA academia (gracias a tenantId global).
    */
   async getCourseBySlug(tenantId: string, slug: string) {
@@ -83,5 +114,49 @@ export class CoursesService {
     }
 
     return course;
+  }
+
+  /**
+   * Secciones de Currículum
+   */
+  async createSection(tenantId: string, courseId: string, title: string) {
+    // Validar que el curso existe y pertenece al tenant
+    const course = await this.prisma.course.findFirst({
+      where: { id: courseId, tenantId }
+    });
+    if (!course) throw new NotFoundException('Curso no encontrado');
+
+    const count = await this.prisma.courseSection.count({ where: { courseId } });
+
+    return this.prisma.courseSection.create({
+      data: {
+        tenantId,
+        courseId,
+        title,
+        order: count + 1,
+      }
+    });
+  }
+
+  /**
+   * Lecciones de Currículum
+   */
+  async createLesson(tenantId: string, sectionId: string, data: { title: string, type: any }) {
+    const section = await this.prisma.courseSection.findFirst({
+      where: { id: sectionId, tenantId }
+    });
+    if (!section) throw new NotFoundException('Sección no encontrada');
+
+    const count = await this.prisma.lesson.count({ where: { sectionId } });
+
+    return this.prisma.lesson.create({
+      data: {
+        tenantId,
+        sectionId,
+        title: data.title,
+        type: data.type,
+        order: count + 1,
+      }
+    });
   }
 }
