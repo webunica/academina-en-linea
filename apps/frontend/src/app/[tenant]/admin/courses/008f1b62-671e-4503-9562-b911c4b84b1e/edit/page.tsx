@@ -18,12 +18,14 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import { apiClient } from '@/lib/axios';
+import VideoUploader from '@/components/media/VideoUploader';
 
 interface Lesson {
   id: string;
   title: string;
   type: string;
   order: number;
+  bunnyVideoId?: string; // Relation derived from mediaAsset
 }
 
 interface Section {
@@ -46,6 +48,8 @@ export default function CourseCurriculumEditor({ params }: { params: { tenant: s
   const [newSectionTitle, setNewSectionTitle] = useState('');
   const [isAddingSection, setIsAddingSection] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [expandedLessonId, setExpandedLessonId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchCourse();
@@ -169,21 +173,51 @@ export default function CourseCurriculumEditor({ params }: { params: { tenant: s
               </div>
 
               {/* Lessons inside Section */}
-              <div className="p-2 divide-y divide-slate-50">
+              <div className="p-2 divide-y divide-slate-100">
                 {section.lessons.map((lesson, lIndex) => (
-                  <div key={lesson.id} className="flex items-center justify-between px-4 py-4 hover:bg-slate-50/50 transition-colors rounded-xl">
-                    <div className="flex items-center gap-4">
-                       <Video className="h-4 w-4 text-emerald-500" />
-                       <span className="text-sm font-medium text-slate-600">
-                        {lIndex + 1}. {lesson.title}
-                       </span>
+                  <div key={lesson.id} className="transition-all">
+                    <div 
+                      onClick={() => setExpandedLessonId(expandedLessonId === lesson.id ? null : lesson.id)}
+                      className={`flex items-center justify-between px-4 py-4 hover:bg-slate-50 transition-colors rounded-xl cursor-pointer ${expandedLessonId === lesson.id ? 'bg-slate-50' : ''}`}
+                    >
+                      <div className="flex items-center gap-4">
+                         <div className="p-2 bg-white rounded-lg border border-slate-100 shadow-sm">
+                           <Video className={`h-4 w-4 ${lesson.bunnyVideoId ? 'text-emerald-500' : 'text-slate-300'}`} />
+                         </div>
+                         <span className="text-sm font-bold text-slate-700">
+                          {lIndex + 1}. {lesson.title}
+                         </span>
+                      </div>
+                      <div className="flex items-center text-xs text-slate-400 gap-4">
+                         {lesson.bunnyVideoId ? (
+                           <span className="flex items-center text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded font-bold uppercase tracking-tighter">HD</span>
+                         ) : (
+                           <span className="italic">Sin video</span>
+                         )}
+                         <ChevronDown className={`h-4 w-4 transition-transform ${expandedLessonId === lesson.id ? 'rotate-180' : ''}`} />
+                      </div>
                     </div>
-                    <div className="flex items-center text-xs text-slate-400 gap-4">
-                       <span>8m 32s</span>
-                       <button className="p-1 hover:text-slate-600">
-                        <MoreVertical className="h-4 w-4" />
-                       </button>
-                    </div>
+
+                    {/* Expanded Lesson Content (Uploader) */}
+                    {expandedLessonId === lesson.id && (
+                      <div className="px-6 py-8 bg-slate-50/30 border-y border-slate-100 animate-slide-down">
+                         <div className="max-w-2xl mx-auto">
+                            <label className="block text-xs font-bold text-slate-400 uppercase tracking-widest mb-4">Ingesta de Video (Bunny.net)</label>
+                            <VideoUploader 
+                              currentVideoId={lesson.bunnyVideoId}
+                              onUploadComplete={async (bunnyVideoId) => {
+                                // Guardar el ID en la lección (Backend update)
+                                try {
+                                  await apiClient.patch(`/courses/lessons/${lesson.id}`, { bunnyVideoId });
+                                  fetchCourse();
+                                } catch (e) {
+                                  console.error("Error linking video:", e);
+                                }
+                              }}
+                            />
+                         </div>
+                      </div>
+                    )}
                   </div>
                 ))}
 

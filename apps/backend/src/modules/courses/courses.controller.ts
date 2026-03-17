@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Body, Param, Query, UseGuards, Req } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, UseGuards, Req, Patch } from '@nestjs/common';
 import { CoursesService } from './courses.service';
 import { CreateCourseDto } from './dto/create-course.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -57,5 +57,15 @@ export class CoursesController {
     @Body() body: { title: string, type: string }
   ) {
     return this.coursesService.createLesson(req.tenantId, sectionId, body);
+  }
+
+  @Patch('lessons/:id')
+  @UseGuards(JwtAuthGuard)
+  async updateLesson(
+    @Req() req: RequestWithTenant,
+    @Param('id') lessonId: string,
+    @Body() body: any
+  ) {
+    return this.coursesService.updateLesson(req.tenantId, lessonId, body);
   }
 }

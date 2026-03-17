@@ -53,7 +53,7 @@ export class CoursesService {
       include: {
         instructor: { 
           include: { user: { select: { profile: true } } }
-        },
+        } as any,
         _count: { select: { sections: true, enrollments: true } }
       },
       orderBy: { createdAt: 'desc' },
@@ -81,14 +81,24 @@ export class CoursesService {
       include: {
         course: {
           include: {
-            instructor: { select: { user: { select: { profile: true } } } },
-            _count: { select: { sections: true } }
+            instructor: { select: { user: { select: { profile: true } } } } as any,
+            _count: { select: { sections: true } },
+            progress: {
+              where: { studentId: student.id }
+            }
           }
         }
       }
     });
 
-    return (enrollments as any[]).map(e => e.course);
+    return (enrollments as any[]).map(e => {
+      const course = e.course;
+      const progress = course.progress?.[0] || null;
+      return {
+        ...course,
+        progress
+      };
+    });
   }
 
   /**
@@ -156,6 +166,37 @@ export class CoursesService {
         title: data.title,
         type: data.type,
         order: count + 1,
+      }
+    });
+  }
+
+  async updateLesson(tenantId: string, lessonId: string, data: any) {
+    // Validar propiedad del tenant
+    const lesson = await this.prisma.lesson.findFirst({
+      where: { id: lessonId, tenantId }
+    });
+    if (!lesson) throw new NotFoundException('Lección no encontrada');
+
+    let videoAssetId = lesson.videoAssetId;
+
+    // Si recibimos un bunnyVideoId, buscamos su MediaAsset ID en nuestra BD
+    if (data.bunnyVideoId) {
+      const asset = await this.prisma.mediaAsset.findFirst({
+        where: { tenantId, providerId: data.bunnyVideoId }
+      });
+      if (asset) {
+        videoAssetId = asset.id;
+      }
+    }
+
+    return (this.prisma.lesson as any).update({
+      where: { id: lessonId },
+      data: {
+        title: data.title,
+        content: data.content,
+        videoAssetId: videoAssetId,
+        durationSec: data.durationSec,
+        isFreePreview: data.isFreePreview
       }
     });
   }

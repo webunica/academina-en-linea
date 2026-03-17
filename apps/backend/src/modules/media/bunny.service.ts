@@ -1,6 +1,7 @@
 import { Injectable, InternalServerErrorException, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../prisma/prisma.service';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class BunnyService {
@@ -19,11 +20,10 @@ export class BunnyService {
 
   /**
    * 1. Solicita la pre-creación de un Video en Bunny.net.
-   * Esto retorna un ID que nuestro Frontend usará para subir el archivo directamente (Tus Protocol).
+   * Esto retorna un ID que nuestro Frontend usará para subir el archivo directamente.
    */
   async createVideoAsset(tenantId: string, title: string) {
     try {
-      // Petición a la API de Bunny.net
       const response = await fetch(`${this.baseUrl}/${this.libraryId}/videos`, {
         method: 'POST',
         headers: {
@@ -34,12 +34,13 @@ export class BunnyService {
       });
 
       if (!response.ok) {
+        const err = await response.text();
+        this.logger.error(`Bunny API error: ${err}`);
         throw new Error('Failed to create video on Bunny.net');
       }
 
       const externalData = await response.json();
 
-      // Guardamos la referencia agnóstica en nuestra base de datos para el Tenant
       const dbAsset = await this.prisma.mediaAsset.create({
         data: {
           tenantId,
@@ -53,7 +54,7 @@ export class BunnyService {
       return {
         bunnyVideoId: externalData.guid,
         mediaAssetId: dbAsset.id,
-        uploadUrl: `https://video.bunnycdn.com/tusupload`, // Usado por Uppy.js / Tus en el frontend
+        libraryId: this.libraryId,
       };
     } catch (error) {
       this.logger.error(`Error creating Bunny.net asset: ${error.message}`);
@@ -62,15 +63,21 @@ export class BunnyService {
   }
 
   /**
-   * Genera el JWT seguro para el reproductor embebido de Bunny.
-   * Garantiza que el video solo pueda ser visto por un estudiante inscrito en ese Tenant.
+   * Genera el URL firmado para el reproductor embebido de Bunny.
    */
-  async generateSecureEmbedToken(videoId: string, tenantDomain: string): Promise<string> {
-    // Aquí implementamos la firma HMAC-SHA256 exigida por Bunny Token Security
-    // Esto asegura que si roban el iframe, no funcionará en dominios extraños a la academia
-    const secret = this.configService.get<string>('BUNNY_TOKEN_SECURITY_KEY');
+  async generateSecureEmbedUrl(videoId: string): Promise<string> {
+    const securityKey = this.configService.get<string>('BUNNY_SECURITY_KEY');
+    if (!securityKey) return `https://iframe.mediadelivery.net/embed/${this.libraryId}/${videoId}`;
+
+    // Paso de tiempo: expira en 2 horas
+    const expires = Math.floor(Date.now() / 1000) + (3600 * 2);
     
-    // Lógica hash en producción...
-    return `https://iframe.mediadelivery.net/embed/${this.libraryId}/${videoId}?token=SECURE_HASH`;
+    // Algoritmo: SHA256(securityKey + videoId + expires)
+    const token = crypto
+      .createHash('sha256')
+      .update(securityKey + videoId + expires.toString())
+      .digest('hex');
+
+    return `https://iframe.mediadelivery.net/embed/${this.libraryId}/${videoId}?token=${token}&expires=${expires}`;
   }
 }

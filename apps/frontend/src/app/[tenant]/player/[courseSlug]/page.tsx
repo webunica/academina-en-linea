@@ -19,6 +19,10 @@ interface Lesson {
   id: string;
   title: string;
   type: string;
+  videoAssetId?: string;
+  videoAsset?: {
+    providerId: string;
+  }
 }
 
 interface Section {
@@ -37,6 +41,8 @@ export default function CoursePlayerPage({ params }: { params: { tenant: string,
   const [course, setCourse] = useState<Course | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeLesson, setActiveLesson] = useState<Lesson | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [loadingVideo, setLoadingVideo] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   useEffect(() => {
@@ -50,6 +56,38 @@ export default function CoursePlayerPage({ params }: { params: { tenant: string,
       })
       .catch(() => setLoading(false));
   }, [params.courseSlug]);
+
+  useEffect(() => {
+    if (activeLesson?.videoAsset?.providerId) {
+      setLoadingVideo(true);
+      apiClient.get(`/media/signed-url/${activeLesson.videoAsset.providerId}`)
+        .then(res => {
+          setVideoUrl(res.data.url);
+        })
+        .catch(() => setVideoUrl(null))
+        .finally(() => setLoadingVideo(false));
+    } else {
+      setVideoUrl(null);
+    }
+  }, [activeLesson]);
+
+  const handleComplete = async () => {
+    if (!activeLesson) return;
+    try {
+      await apiClient.post(`/enrollments/lessons/${activeLesson.id}/complete`);
+      
+      const allLessons = course?.sections.flatMap(s => s.lessons) || [];
+      const currentIndex = allLessons.findIndex(l => l.id === activeLesson.id);
+      
+      if (currentIndex < allLessons.length - 1) {
+        setActiveLesson(allLessons[currentIndex + 1]);
+      } else {
+        alert("¡Felicidades! Has completado el curso.");
+      }
+    } catch (e) {
+      console.error("Error al completar lección:", e);
+    }
+  };
 
   if (loading) return (
     <div className="h-screen flex items-center justify-center bg-slate-900">
@@ -119,23 +157,28 @@ export default function CoursePlayerPage({ params }: { params: { tenant: string,
         {/* Video Frame */}
         <div className="flex-1 flex items-center justify-center p-4 md:p-8">
            <div className="w-full max-w-5xl aspect-video bg-slate-900 rounded-2xl shadow-2xl border border-slate-800 overflow-hidden relative group">
-              {/* Mock Video UI */}
-              <div className="absolute inset-0 flex items-center justify-center">
-                 <div className="bg-emerald-600/20 p-8 rounded-full border border-emerald-500/30 group-hover:scale-110 transition-transform cursor-pointer">
-                    <PlayCircle className="h-16 w-16 text-emerald-500 fill-emerald-500/10" />
-                 </div>
-              </div>
-              
-              {/* Controls Overlay Bottom */}
-              <div className="absolute bottom-0 inset-x-0 h-20 bg-gradient-to-t from-black/80 to-transparent flex items-center px-8 justify-between opacity-0 group-hover:opacity-100 transition-opacity">
-                 <div className="flex items-center gap-6">
-                    <PlayCircle className="h-6 w-6" />
-                    <div className="w-96 h-1 bg-slate-600 rounded-full relative">
-                       <div className="absolute inset-y-0 left-0 bg-emerald-500 rounded-full" style={{ width: '30%' }}></div>
-                    </div>
-                    <span className="text-xs font-mono">03:22 / 12:45</span>
-                 </div>
-              </div>
+              {videoUrl ? (
+                <iframe 
+                  src={videoUrl} 
+                  loading="lazy" 
+                  className="absolute inset-0 w-full h-full border-0"
+                  allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;" 
+                  allowFullScreen
+                ></iframe>
+              ) : (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-500 gap-4">
+                   {loadingVideo ? (
+                     <Loader2 className="h-10 w-10 animate-spin text-emerald-500" />
+                   ) : (
+                     <>
+                      <div className="bg-slate-800 p-8 rounded-full">
+                        <PlayCircle className="h-16 w-16 opacity-20" />
+                      </div>
+                      <p className="font-bold text-sm uppercase tracking-widest">Esta lección no tiene video aún</p>
+                     </>
+                   )}
+                </div>
+              )}
            </div>
         </div>
 
@@ -144,7 +187,10 @@ export default function CoursePlayerPage({ params }: { params: { tenant: string,
            <button className="flex items-center text-sm font-bold text-slate-400 hover:text-white transition-colors">
               <ChevronLeft className="h-4 w-4 mr-2" /> Anterior
            </button>
-           <button className="bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-900/20 active:scale-95 flex items-center">
+           <button 
+             onClick={handleComplete}
+             className="bg-emerald-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-emerald-700 transition-all shadow-lg shadow-emerald-900/20 active:scale-95 flex items-center"
+           >
               Completar y Siguiente <ChevronRight className="h-4 w-4 ml-2" />
            </button>
         </footer>
