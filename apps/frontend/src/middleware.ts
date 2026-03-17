@@ -49,30 +49,21 @@ export function middleware(req: NextRequest) {
   const rootDomain = isRootPlatformDomain(hostname);
 
   if (rootDomain) {
-    // Dominio raíz SaaS → mostrar landing y páginas de plataforma
-    if (url.pathname === '/') {
-      url.pathname = '/saas';
-      return NextResponse.rewrite(url);
-    }
-    if (url.pathname === '/register') {
-      url.pathname = '/saas/register';
-      return NextResponse.rewrite(url);
-    }
-    // Rutas /saas/* las dejamos pasar tal cual
+    // Dominio raíz SaaS (Plataforma)
+    // Dejamos pasar todas las rutas (/ , /register, /login global, etc)
+    // Next.js las encontrará en src/app/*
     return NextResponse.next();
   }
 
   // --- Lógica de TENANTS (subdominios o dominios propios) ---
   // Extraer slug del tenant del hostname
-  // Ej: "miacademia.academina.cl" → "miacademia"
-  // Ej: "miacademia.localhost" → "miacademia" (para dev local)
   let tenantSlug = hostname
     .replace('.academina.cl', '')
     .replace('.www.academina.cl', '')
     .replace('.localhost:3000', '')
     .replace('.localhost', '');
 
-  // Si la ruta ya empieza con el slug del tenant (dev local con /[tenant]/*), pasar directo
+  // Si la ruta ya empieza con el slug del tenant (dev local con /[tenant]/* o recursión), pasar directo
   if (url.pathname.startsWith(`/${tenantSlug}`)) {
     return NextResponse.next();
   }

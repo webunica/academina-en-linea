@@ -1,0 +1,13 @@
+{
+  "name": "academina-monorepo",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:frontend": "npm run dev --prefix apps/frontend",
+    "dev:backend": "npm run dev --prefix apps/backend",
+    "build:frontend": "npm run build --prefix apps/frontend",
+    "build:backend": "npm run build --prefix apps/backend"
+  }
+}
