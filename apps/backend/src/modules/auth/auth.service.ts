@@ -63,15 +63,18 @@ export class AuthService {
 
   /**
    * Logeo estricto verificando que la contraseña coincida.
+   * Infiere el rol más alto del usuario dentro de ESTE tenant específico.
    */
   async login(tenantId: string, dto: LoginDto) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
       include: {
-        // En un query complejo, buscaríamos también sus roles en esta academia.
         students: { where: { tenantId } },
         instructors: { where: { tenantId } },
-        roles: { where: { tenantId } } // Tenant Admin / Roles genéricos
+        roles: {
+          where: { tenantId },
+          include: { role: true } // Incluir el objeto Role para leer su type
+        }
       }
     });
 
@@ -84,13 +87,21 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas');
     }
 
-    // Inferir qué rol tiene en esta academia al momento de loguearse:
-    let highestRoleScope = 'USER';
-    if (user.roles.some((r) => true)) highestRoleScope = 'TENANT_ADMIN'; // Simplificado
-    else if (user.instructors.length > 0) highestRoleScope = 'INSTRUCTOR';
-    else if (user.students.length > 0) highestRoleScope = 'STUDENT';
-    else {
-      // Pertenece a la plataforma, pero no a esta academia en particular
+    // Inferir el rol más alto dentro de ESTA academia (prioridad: admin > instructor > student)
+    let highestRoleScope: string;
+
+    const isTenantAdmin = (user.roles as any[]).some((ur) => 
+      ur.role?.type === 'TENANT_ADMIN' || ur.role?.type === 'SUPERADMIN'
+    );
+
+    if (isTenantAdmin) {
+      highestRoleScope = 'TENANT_ADMIN';
+    } else if ((user as any).instructors?.length > 0) {
+      highestRoleScope = 'INSTRUCTOR';
+    } else if ((user as any).students?.length > 0) {
+      highestRoleScope = 'STUDENT';
+    } else {
+      // El usuario existe globalmente pero NO pertenece a esta academia
       throw new UnauthorizedException('No tienes una cuenta activa en esta academia.');
     }
 

@@ -47,9 +47,12 @@ export default function CourseCurriculumEditor({ params }: { params: { tenant: s
   const [loading, setLoading] = useState(true);
   const [newSectionTitle, setNewSectionTitle] = useState('');
   const [isAddingSection, setIsAddingSection] = useState(false);
+  const [newLessonTitle, setNewLessonTitle] = useState('');
+  const [addingLessonForSection, setAddingLessonForSection] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [expandedLessonId, setExpandedLessonId] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState('');
 
   useEffect(() => {
     fetchCourse();
@@ -70,29 +73,32 @@ export default function CourseCurriculumEditor({ params }: { params: { tenant: s
     if (!newSectionTitle.trim()) return;
     try {
       setSaving(true);
+      setSaveError('');
       await apiClient.post(`/courses/${params.id}/sections`, { title: newSectionTitle });
       setNewSectionTitle('');
       setIsAddingSection(false);
-      fetchCourse();
-    } catch (err) {
-      console.error('Error adding section:', err);
+      await fetchCourse();
+    } catch (err: any) {
+      setSaveError(err.response?.data?.message || 'No se pudo crear la sección. Intente de nuevo.');
     } finally {
       setSaving(false);
     }
   };
 
   const handleAddLesson = async (sectionId: string) => {
-    const title = window.prompt('Título de la lección:');
-    if (!title) return;
+    if (!newLessonTitle.trim()) return;
     try {
       setSaving(true);
+      setSaveError('');
       await apiClient.post(`/courses/sections/${sectionId}/lessons`, { 
-        title, 
+        title: newLessonTitle, 
         type: 'VIDEO' 
       });
-      fetchCourse();
-    } catch (err) {
-      console.error('Error adding lesson:', err);
+      setNewLessonTitle('');
+      setAddingLessonForSection(null);
+      await fetchCourse();
+    } catch (err: any) {
+      setSaveError(err.response?.data?.message || 'No se pudo crear la lección. Intente de nuevo.');
     } finally {
       setSaving(false);
     }
@@ -128,6 +134,13 @@ export default function CourseCurriculumEditor({ params }: { params: { tenant: s
       </header>
 
       <div className="max-w-4xl mx-auto py-12 px-6">
+        {/* Error Banner */}
+        {saveError && (
+          <div className="mb-6 bg-red-50 border-l-4 border-red-500 p-4 rounded-lg flex items-center justify-between">
+            <p className="text-sm text-red-700 font-medium">{saveError}</p>
+            <button onClick={() => setSaveError('')} className="text-red-400 hover:text-red-600 ml-4">×</button>
+          </div>
+        )}
         <div className="flex items-center justify-between mb-8">
            <h2 className="text-2xl font-bold text-slate-900 tracking-tight flex items-center">
              <BookOpen className="h-6 w-6 mr-3 text-emerald-600" />
@@ -217,14 +230,43 @@ export default function CourseCurriculumEditor({ params }: { params: { tenant: s
                   </div>
                 ))}
 
-                {/* Add Lesson Button */}
-                <button 
-                  onClick={() => handleAddLesson(section.id)}
-                  className="w-full py-4 text-sm font-semibold text-slate-400 hover:text-emerald-600 transition-colors flex items-center justify-center gap-1 group/btn"
-                >
-                  <Plus className="h-4 w-4 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
-                  Añadir lección
-                </button>
+                {/* Add Lesson inline form or button */}
+                {addingLessonForSection === section.id ? (
+                  <div className="px-4 py-4 border-t border-slate-100">
+                    <div className="flex items-center gap-2">
+                      <input
+                        autoFocus
+                        type="text"
+                        value={newLessonTitle}
+                        onChange={(e) => setNewLessonTitle(e.target.value)}
+                        onKeyDown={(e) => e.key === 'Enter' && handleAddLesson(section.id)}
+                        placeholder="Título de la lección..."
+                        className="flex-1 text-sm font-medium text-slate-900 bg-slate-50 border border-slate-200 rounded-lg px-4 py-2.5 outline-none focus:ring-2 focus:ring-emerald-500"
+                      />
+                      <button
+                        onClick={() => handleAddLesson(section.id)}
+                        disabled={saving}
+                        className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold text-sm"
+                      >
+                        {saving ? <Loader2 className="animate-spin h-4 w-4" /> : 'Crear'}
+                      </button>
+                      <button
+                        onClick={() => { setAddingLessonForSection(null); setNewLessonTitle(''); }}
+                        className="text-slate-400 hover:text-slate-600 px-2 font-bold text-lg"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button 
+                    onClick={() => setAddingLessonForSection(section.id)}
+                    className="w-full py-4 text-sm font-semibold text-slate-400 hover:text-emerald-600 transition-colors flex items-center justify-center gap-1 group/btn"
+                  >
+                    <Plus className="h-4 w-4 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+                    Añadir lección
+                  </button>
+                )}
               </div>
             </div>
           ))}
