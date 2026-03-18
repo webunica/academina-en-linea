@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: academina-backend
+    env: node
+    buildCommand: npm install && npx prisma generate --schema=apps/backend/prisma/schema.prisma && npm run build --prefix apps/backend
+    startCommand: npm run start:prod --prefix apps/backend
+    envVars:
+      - key: PORT
+        value: "3001"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: FRONTEND_URL
+        value: https://academina-en-linea.vercel.app
