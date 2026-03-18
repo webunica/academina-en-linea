@@ -78,13 +78,13 @@ export default function CoursesListPage({ params }: { params: { tenant: string }
         <div className="flex items-center bg-slate-100 p-1 rounded-lg">
           <button 
             onClick={() => setViewMode('grid')}
-            className={`p-2 rounded-md transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500'}`}
+            className={`p-2 rounded-md transition-all ${viewMode === 'grid' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:bg-slate-200'}`}
           >
             <LayoutGrid className="h-5 w-5" />
           </button>
           <button 
             onClick={() => setViewMode('list')}
-            className={`p-2 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500'}`}
+            className={`p-2 rounded-md transition-all ${viewMode === 'list' ? 'bg-white shadow-sm text-emerald-600' : 'text-slate-500 hover:bg-slate-200'}`}
           >
             <ListIcon className="h-5 w-5" />
           </button>
@@ -151,6 +151,7 @@ export default function CoursesListPage({ params }: { params: { tenant: string }
                     <a 
                       href={`/${params.tenant}/courses/${course.slug}`} 
                       target="_blank"
+                      rel="noopener noreferrer"
                       className="p-2 bg-slate-50 text-slate-500 rounded-lg hover:bg-blue-50 hover:text-blue-600 transition-colors"
                     >
                       <ExternalLink className="h-5 w-5" />
