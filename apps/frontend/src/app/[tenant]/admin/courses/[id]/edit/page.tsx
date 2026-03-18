@@ -57,14 +57,10 @@ export default function CourseCurriculumEditor({ params }: { params: { tenant: s
 
   const fetchCourse = async () => {
     try {
-      const response = await apiClient.get(`/courses/${params.id}`); // Necesitamos un endpoint por ID también o usar slug
-      // Como el controller anterior usa slug, vamos a buscarlo por slug o ID si existe el endpoint
-      // Ajustemos el backend para aceptar ID en el controller.
+      const response = await apiClient.get(`/courses/detail/${params.id}`);
       setCourse(response.data);
     } catch (err) {
       console.error('Error fetching course:', err);
-      // Fallback: tratar de buscar por ID si el slug falla (si es uuid el param)
-      apiClient.get(`/courses/detail/${params.id}`).then(res => setCourse(res.data)).catch(() => {});
     } finally {
       setLoading(false);
     }

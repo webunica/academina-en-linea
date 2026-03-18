@@ -127,6 +127,32 @@ export class CoursesService {
   }
 
   /**
+   * Detalle individual para el Editor (por ID).
+   */
+  async getCourseById(tenantId: string, id: string) {
+    const course = await this.prisma.course.findUnique({
+      where: {
+        id,
+        tenantId,
+      },
+      include: {
+        sections: {
+          include: {
+            lessons: { orderBy: { order: 'asc' } }
+          },
+          orderBy: { order: 'asc' }
+        },
+      }
+    });
+
+    if (!course || course.deletedAt) {
+      throw new NotFoundException('Curso no encontrado');
+    }
+
+    return course;
+  }
+
+  /**
    * Secciones de Currículum
    */
   async createSection(tenantId: string, courseId: string, title: string) {

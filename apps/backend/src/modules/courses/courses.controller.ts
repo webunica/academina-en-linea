@@ -28,6 +28,12 @@ export class CoursesController {
     return this.coursesService.getEnrolledCourses(req.tenantId, (req.user as any).sub);
   }
 
+  @Get('detail/:id')
+  @UseGuards(JwtAuthGuard)
+  async findById(@Req() req: RequestWithTenant, @Param('id') id: string) {
+    return this.coursesService.getCourseById(req.tenantId, id);
+  }
+
   @Get(':slug')
   async findOne(@Req() req: RequestWithTenant, @Param('slug') slug: string) {
     return this.coursesService.getCourseBySlug(req.tenantId, slug);
