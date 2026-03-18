@@ -28,7 +28,10 @@ apiClient.interceptors.request.use(
         hostname.endsWith('.vercel.app') || 
         hostname.endsWith('.up.railway.app');
 
-      if (hostname === 'localhost') {
+      if (isRootDomain) {
+        // MUY IMPORTANTE: Asegurarnos de no enviar NINGÚN slug si estamos en pages de plataforma
+        delete config.headers['x-tenant-slug'];
+      } else if (hostname === 'localhost') {
         // Fallback local: si estamos en localhost:3000, leemos la ruta `pathname` para /slug/..
         const pathSegments = window.location.pathname.split('/');
         // Evitamos inyectarlo si estamos en páginas generales SaaS en localhost
@@ -39,12 +42,17 @@ apiClient.interceptors.request.use(
         } else if (!isSaaSPage) {
            config.headers['x-tenant-slug'] = 'demo-academy';
         }
-      } else if (!isRootDomain) {
-        // Estamos en un dominio público real que NO es la raíz del SaaS
-        // Ej: "miempresa.academina.cl" -> "miempresa"
+      } else {
+        // Estamos en un dominio público real de ACADEMIA (ej: miempresa.academina.cl)
+        // o en un custom domain mapeado (ej: mipropiaacademia.com)
         const domainParts = hostname.split('.');
+        // Subdominio normal (miacademia.academina.cl -> ['miacademia', 'academina', 'cl'])
         if (domainParts.length >= 3) {
           config.headers['x-tenant-slug'] = domainParts[0];
+        } else {
+          // Si es un dominio propio "miacademia.com", usaremos el header hostnatgme completo (backend debe resolverlo)
+          // Para el MVP asumimos subdominios siempre.
+          config.headers['x-tenant-slug'] = domainParts[0]; 
         }
       }
     }
