@@ -2,10 +2,12 @@ databases:
   - name: academina-db
     databaseName: academina_lms
     user: academina_prod
+    ipAllowList: []
 
 services:
   - type: redis
     name: academina-redis
+    ipAllowList: []
 
   - type: web
     name: academina-backend
