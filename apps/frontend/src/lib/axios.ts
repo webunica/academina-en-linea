@@ -28,19 +28,21 @@ apiClient.interceptors.request.use(
         hostname.endsWith('.vercel.app') || 
         hostname.endsWith('.up.railway.app');
 
-      if (isRootDomain) {
-        // MUY IMPORTANTE: Asegurarnos de no enviar NINGÚN slug si estamos en pages de plataforma
-        delete config.headers['x-tenant-slug'];
-      } else if (hostname === 'localhost') {
-        // Fallback local: si estamos en localhost:3000, leemos la ruta `pathname` para /slug/..
+      if (isRootDomain || hostname === 'localhost') {
+        // En localhost o dominios maestros de Vercel/SaaS, no tenemos subdominios, 
+        // así que miramos el path (ej: /ipsdatax/login)
         const pathSegments = window.location.pathname.split('/');
-        // Evitamos inyectarlo si estamos en páginas generales SaaS en localhost
-        const isSaaSPage = ['register', 'login', 'pricing', ''].includes(pathSegments[1]);
+        const firstSegment = pathSegments[1] || '';
         
-        if (pathSegments.length > 1 && !isSaaSPage) {
-           config.headers['x-tenant-slug'] = pathSegments[1];
-        } else if (!isSaaSPage) {
-           config.headers['x-tenant-slug'] = 'demo-academy';
+        // Paginas que definitivamente son de Plataforma y no de academia
+        const isSaaSPage = ['register', 'pricing', ''].includes(firstSegment);
+        
+        if (firstSegment && !isSaaSPage && firstSegment !== 'api' && firstSegment !== '_next') {
+           // Asumimos que la primera parte de la ruta es el tenant (path-based routing)
+           config.headers['x-tenant-slug'] = firstSegment;
+        } else {
+           // En páginas pure SaaS (como /register o /), eliminamos la cabecera por completo
+           delete config.headers['x-tenant-slug'];
         }
       } else {
         // Estamos en un dominio público real de ACADEMIA (ej: miempresa.academina.cl)
