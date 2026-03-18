@@ -1,14 +1,34 @@
+databases:
+  - name: academina-db
+    databaseName: academina_lms
+    user: academina_prod
+
 services:
+  - type: redis
+    name: academina-redis
+
   - type: web
     name: academina-backend
     env: node
-    buildCommand: npm install && npx prisma generate --schema=apps/backend/prisma/schema.prisma && npm run build --prefix apps/backend
+    buildCommand: npm install && npx prisma generate --schema=apps/backend/prisma/schema.prisma && npx prisma db push --schema=apps/backend/prisma/schema.prisma --accept-data-loss && npm run build --prefix apps/backend
     startCommand: npm run start:prod --prefix apps/backend
     envVars:
       - key: PORT
         value: "3001"
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: academina-db
+          property: connectionString
+      - key: REDIS_HOST
+        fromService:
+          type: redis
+          name: academina-redis
+          property: host
+      - key: REDIS_PORT
+        fromService:
+          type: redis
+          name: academina-redis
+          property: port
       - key: JWT_SECRET
         generateValue: true
       - key: FRONTEND_URL
