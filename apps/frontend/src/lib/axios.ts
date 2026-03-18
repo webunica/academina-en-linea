@@ -20,18 +20,31 @@ apiClient.interceptors.request.use(
     // 2. Extraer el Subdominio (Tenant Slug) de la URL actual en el Frontend
     if (typeof window !== 'undefined') {
       const hostname = window.location.hostname;
-      // Extraemos todo lo que esté antes del dominio principal, ej: "tuempresa.academina.cl" -> "tuempresa"
-      const domainParts = hostname.split('.');
-      if (domainParts.length >= 3) {
-        config.headers['x-tenant-slug'] = domainParts[0];
-      } else if (hostname === 'localhost') {
-        // Fallback local: si estamos en localhost:3000, leemos la ruta `pathname` para /slug/.. (Comportamiento Middleware Phase 4)
+      
+      // Lista de dominios que pertenecen a la PLATAFORMA (SaaS) y que NO son academias
+      const isRootDomain = 
+        hostname === 'academina.cl' || 
+        hostname === 'www.academina.cl' || 
+        hostname.endsWith('.vercel.app') || 
+        hostname.endsWith('.up.railway.app');
+
+      if (hostname === 'localhost') {
+        // Fallback local: si estamos en localhost:3000, leemos la ruta `pathname` para /slug/..
         const pathSegments = window.location.pathname.split('/');
-        if (pathSegments.length > 1 && pathSegments[1] !== 'saas' && pathSegments[1] !== '') {
+        // Evitamos inyectarlo si estamos en páginas generales SaaS en localhost
+        const isSaaSPage = ['register', 'login', 'pricing', ''].includes(pathSegments[1]);
+        
+        if (pathSegments.length > 1 && !isSaaSPage) {
            config.headers['x-tenant-slug'] = pathSegments[1];
-        } else {
-           // Tenant estático de prueba si nada se cumple localmente
+        } else if (!isSaaSPage) {
            config.headers['x-tenant-slug'] = 'demo-academy';
+        }
+      } else if (!isRootDomain) {
+        // Estamos en un dominio público real que NO es la raíz del SaaS
+        // Ej: "miempresa.academina.cl" -> "miempresa"
+        const domainParts = hostname.split('.');
+        if (domainParts.length >= 3) {
+          config.headers['x-tenant-slug'] = domainParts[0];
         }
       }
     }
